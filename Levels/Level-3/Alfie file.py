@@ -1,84 +1,85 @@
-
-
 import pygame
 import random
 from os.path import join
-
+ 
 # SETUP
 pygame.init()
-
+ 
 WINDOW_WIDTH = 1200
 WINDOW_HEIGHT = 700
 WINDOW_SIZE = (WINDOW_WIDTH, WINDOW_HEIGHT)
-
+ 
 screen = pygame.display.set_mode(WINDOW_SIZE)
 pygame.display.set_caption("Animal Dash")
-
+ 
 clock = pygame.time.Clock()
 font = pygame.font.Font(None, 50)
-
+ 
 running = True
-
+ 
 # BACKGROUND
 background = pygame.image.load(
     join("Levels", "Level-3", "images", "whale_background.png")
 ).convert()
-
+ 
 background = pygame.transform.scale(background, WINDOW_SIZE)
 bg_width = background.get_width()
-
+ 
+ 
 
 # PLAYER
 class Player(pygame.sprite.Sprite):
     def __init__(self):
         super().__init__()
-
+ 
         self.lives = 3
-
+ 
         self.image = pygame.image.load(
             join("Levels", "Level-3", "images", "whale.png")
         ).convert_alpha()
-
+ 
         self.rect = self.image.get_rect(center=(200, 350))
-        self.hitbox = self.rect.inflate(-60, -60)
-
+ 
         self.pos = pygame.Vector2(self.rect.center)
-
+ 
         self.direction = pygame.Vector2()
         self.speed = 300
+ 
+        # Mask is built once here. If you ever change self.image
+        # (e.g. for animation frames), rebuild the mask too.
         self.mask = pygame.mask.from_surface(self.image)
-
+ 
     def update(self, dt):
         keys = pygame.key.get_pressed()
-
+ 
         self.direction.x = (
             int(keys[pygame.K_RIGHT])
             - int(keys[pygame.K_LEFT])
         )
-
+ 
         self.direction.y = (
             int(keys[pygame.K_DOWN])
             - int(keys[pygame.K_UP])
         )
-
+ 
         if self.direction.length() > 0:
             self.direction = self.direction.normalize()
-
+ 
         self.pos += self.direction * self.speed * dt
-
+ 
         self.pos.y = max(50, min(WINDOW_HEIGHT - 50, self.pos.y))
-
+ 
         self.rect.center = self.pos
-        self.hitbox.center = self.rect.center
 
-
+       
+ 
 # BUBBLES
 class Bubble(pygame.sprite.Sprite):
     def __init__(self):
         super().__init__()
-
+ 
         self.image = pygame.Surface((20, 20), pygame.SRCALPHA)
-
+ 
         pygame.draw.circle(
             self.image,
             (200, 230, 255),
@@ -86,117 +87,138 @@ class Bubble(pygame.sprite.Sprite):
             10,
             2
         )
-
+ 
         self.world_x = 0
         self.world_y = WINDOW_HEIGHT + random.randint(0, 200)
-
+ 
         self.rect = self.image.get_rect(
             center=(self.world_x, self.world_y)
         )
-
+ 
         self.speed = random.randint(80, 180)
-
+ 
     def update(self, dt):
         self.world_y -= self.speed * dt
         self.rect.center = (self.world_x, self.world_y)
-
+ 
         if self.rect.bottom < -50:
             self.kill()
-
-
+ 
+ 
 # OBSTACLES
 class Obstacle(pygame.sprite.Sprite):
     def __init__(self, x):
         super().__init__()
-
+ 
         self.image = pygame.image.load(
             join("Levels", "Level-3", "images", "bottle_whale.png")
         ).convert_alpha()
-
+ 
         self.rect = self.image.get_rect(
             center=(x, random.randint(100, 600))
         )
-
-        self.hitbox = self.rect.inflate(-50, -50)
+ 
         self.mask = pygame.mask.from_surface(self.image)
-
+ 
     def update(self, dt):
-        self.hitbox.center = self.rect.center
+        pass
+ 
+ 
+def check_collision(player, obstacle):
+    """
+    Hybrid collision check: cheap rect overlap first (fast reject for
+    the common case of obstacles that are nowhere near the player),
+    then a precise pixel-mask overlap only if the rects actually
+    intersect. This keeps performance good even with many obstacles
+    on screen, while matching what's visually on screen.
+    """
+    if not player.rect.colliderect(obstacle.rect):
+        return False
+ 
+    offset = (
+        obstacle.rect.x - player.rect.x,
+        obstacle.rect.y - player.rect.y,
+    )
+ 
+    return player.mask.overlap(obstacle.mask, offset) is not None
+
+
+collectibles = pygame.sprite.Group()
 
 
 # CREATE OBJECTS
 player = Player()
-
+ 
 bubble_group = pygame.sprite.Group()
 obstacle_group = pygame.sprite.Group()
-
+ 
 bubble_timer = 0
 obstacle_timer = 0
-
+ 
 # GAME LOOP
 while running:
-
+ 
     dt = clock.tick(60) / 1000
-
+ 
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
-
+ 
     # Spawn bubbles
     bubble_timer += dt
-
+ 
     if bubble_timer > 0.15:
         bubble = Bubble()
-
+ 
         bubble.world_x = (
             player.pos.x + random.randint(-800, 800)
         )
-
+ 
         bubble_group.add(bubble)
-
+ 
         bubble_timer = 0
-
+ 
     # Spawn obstacles
     obstacle_timer += dt
-
+ 
     if obstacle_timer > 2:
         obstacle = Obstacle(
             player.pos.x + random.randint(600, 1200)
         )
-
+ 
         obstacle_group.add(obstacle)
-
+ 
         obstacle_timer = 0
-
+ 
     # Update
     player.update(dt)
     bubble_group.update(dt)
     obstacle_group.update(dt)
-
-    # Collision
+ 
+    # Collision (mask-based: checks actual pixels, not bounding rects)
     hits = []
-
+ 
     for obstacle in obstacle_group:
-        if player.hitbox.colliderect(obstacle.hitbox):
+        if check_collision(player, obstacle):
             hits.append(obstacle)
             obstacle.kill()
-
+ 
     if hits:
         player.lives -= 1
         print("Lives:", player.lives)
-
+ 
         if player.lives <= 0:
             running = False
-
+ 
     # Camera
     camera_x = player.rect.centerx - WINDOW_WIDTH // 3
-
+ 
     # Draw background
     start_x = -(camera_x % bg_width)
-
+ 
     for i in range(-1, 3):
         screen.blit(background, (start_x + i * bg_width, 0))
-
+ 
     # Draw bubbles
     for bubble in bubble_group:
         screen.blit(
@@ -206,7 +228,7 @@ while running:
                 bubble.rect.y
             )
         )
-
+ 
     # Draw obstacles
     for obstacle in obstacle_group:
         screen.blit(
@@ -216,7 +238,7 @@ while running:
                 obstacle.rect.y
             )
         )
-
+ 
     # Draw whale
     screen.blit(
         player.image,
@@ -226,15 +248,17 @@ while running:
         )
     )
 
+    collectibles.draw(screen)
+ 
     # Draw lives
     lives_text = font.render(
         f"Lives: {player.lives}",
         True,
         (255, 255, 255)
     )
-
+ 
     screen.blit(lives_text, (20, 20))
-
+ 
     pygame.display.flip()
-
+ 
 pygame.quit()

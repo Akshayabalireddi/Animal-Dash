@@ -1,5 +1,4 @@
 
-
 import pygame
 import random
 from os.path import join
@@ -27,7 +26,6 @@ background = pygame.image.load(
 background = pygame.transform.scale(background, WINDOW_SIZE)
 bg_width = background.get_width()
 
-
 # PLAYER
 class Player(pygame.sprite.Sprite):
     def __init__(self):
@@ -40,12 +38,12 @@ class Player(pygame.sprite.Sprite):
         ).convert_alpha()
 
         self.rect = self.image.get_rect(center=(200, 350))
-        self.hitbox = self.rect.inflate(-60, -60)
 
         self.pos = pygame.Vector2(self.rect.center)
 
         self.direction = pygame.Vector2()
         self.speed = 300
+
         self.mask = pygame.mask.from_surface(self.image)
 
     def update(self, dt):
@@ -69,7 +67,6 @@ class Player(pygame.sprite.Sprite):
         self.pos.y = max(50, min(WINDOW_HEIGHT - 50, self.pos.y))
 
         self.rect.center = self.pos
-        self.hitbox.center = self.rect.center
 
 
 # BUBBLES
@@ -117,11 +114,41 @@ class Obstacle(pygame.sprite.Sprite):
             center=(x, random.randint(100, 600))
         )
 
-        self.hitbox = self.rect.inflate(-50, -50)
         self.mask = pygame.mask.from_surface(self.image)
 
     def update(self, dt):
-        self.hitbox.center = self.rect.center
+        pass
+
+
+# FISH COLLECTABLES
+class FishCollectable(pygame.sprite.Sprite):
+    def __init__(self, x):
+        super().__init__()
+
+        self.image = pygame.image.load(
+            join("Levels", "Level-3", "images", "fish_collactable.png")
+        ).convert_alpha()
+
+        self.rect = self.image.get_rect(
+            center=(x, random.randint(100, 600))
+        )
+
+        self.mask = pygame.mask.from_surface(self.image)
+
+    def update(self, dt):
+        pass
+
+
+def check_collision(player, sprite):
+    if not player.rect.colliderect(sprite.rect):
+        return False
+
+    offset = (
+        sprite.rect.x - player.rect.x,
+        sprite.rect.y - player.rect.y,
+    )
+
+    return player.mask.overlap(sprite.mask, offset) is not None
 
 
 # CREATE OBJECTS
@@ -129,14 +156,38 @@ player = Player()
 
 bubble_group = pygame.sprite.Group()
 obstacle_group = pygame.sprite.Group()
+fish_group = pygame.sprite.Group()
 
 bubble_timer = 0
 obstacle_timer = 0
+fish_timer = 0
+
+fish_count = 0
+FISH_GOAL = 15
+
+level_complete = False
+game_over = False
+
+win_timer = 0
+lose_timer = 0
 
 # GAME LOOP
 while running:
 
     dt = clock.tick(60) / 1000
+
+    if level_complete:
+        win_timer += dt
+
+        if win_timer >= 3:
+            # Load Level 4 here
+            running = False
+
+    if game_over:
+        lose_timer += dt
+
+        if lose_timer >= 3:
+            running = False
 
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
@@ -168,25 +219,49 @@ while running:
 
         obstacle_timer = 0
 
+    # Spawn fish
+    fish_timer += dt
+
+    if fish_timer > 3:
+        fish = FishCollectable(
+            player.pos.x + random.randint(500, 1500)
+        )
+
+        fish_group.add(fish)
+
+        fish_timer = 0
+
     # Update
     player.update(dt)
     bubble_group.update(dt)
     obstacle_group.update(dt)
+    fish_group.update(dt)
 
-    # Collision
+    # Obstacle collision
     hits = []
 
     for obstacle in obstacle_group:
-        if player.hitbox.colliderect(obstacle.hitbox):
+        if check_collision(player, obstacle):
             hits.append(obstacle)
             obstacle.kill()
 
-    if hits:
+    if hits and not game_over:
         player.lives -= 1
         print("Lives:", player.lives)
 
         if player.lives <= 0:
-            running = False
+            game_over = True
+
+    # Fish collision
+    for fish in fish_group:
+        if check_collision(player, fish):
+            fish.kill()
+            fish_count += 1
+
+            print("Fish:", fish_count)
+
+            if fish_count >= FISH_GOAL:
+                level_complete = True
 
     # Camera
     camera_x = player.rect.centerx - WINDOW_WIDTH // 3
@@ -217,6 +292,16 @@ while running:
             )
         )
 
+    # Draw fish
+    for fish in fish_group:
+        screen.blit(
+            fish.image,
+            (
+                fish.rect.x - camera_x,
+                fish.rect.y
+            )
+        )
+
     # Draw whale
     screen.blit(
         player.image,
@@ -235,6 +320,33 @@ while running:
 
     screen.blit(lives_text, (20, 20))
 
+    # Draw fish count
+    fish_text = font.render(
+        f"Fish: {fish_count}/{FISH_GOAL}",
+        True,
+        (255, 255, 255)
+    )
+
+    screen.blit(fish_text, (20, 70))
+
+    # Level Complete Message
+    if level_complete:
+        complete_text = font.render(
+            "LEVEL COMPLETE!",
+            True,
+            (255, 255, 0)
+        )
+
+        screen.blit(
+            complete_text,
+            (
+                WINDOW_WIDTH // 2
+                - complete_text.get_width() // 2,
+                WINDOW_HEIGHT // 2
+            )
+        )
+
     pygame.display.flip()
 
 pygame.quit()
+
